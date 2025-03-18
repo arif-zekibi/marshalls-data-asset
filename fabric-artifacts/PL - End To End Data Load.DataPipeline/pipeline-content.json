@@ -1,0 +1,587 @@
+{
+  "properties": {
+    "activities": [
+      {
+        "type": "SetVariable",
+        "typeProperties": {
+          "variableName": "etlstarttimestamp",
+          "value": {
+            "value": "@convertFromUtc(utcNow(),'GMT Standard Time')",
+            "type": "Expression"
+          }
+        },
+        "policy": {
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "Set etlstarttimestamp",
+        "dependsOn": []
+      },
+      {
+        "type": "ExecutePipeline",
+        "typeProperties": {
+          "pipeline": {
+            "referenceName": "a0550730-a388-a93e-4238-dd0879eec7c3",
+            "type": "PipelineReference"
+          },
+          "parameters": {
+            "job_name": "d365lhtosilvercorrectionlh",
+            "last_load_time": {
+              "value": "@activity('Truncate ingestiontables and Get Last Refresh Time').output.firstRow.d365lhtosilvercorrectionlhstarttime",
+              "type": "Expression"
+            },
+            "eltexecutiontime": {
+              "value": "@variables('etlstarttimestamp')",
+              "type": "Expression"
+            },
+            "source_db_name": "dataverse_mrshd365cete_cds2_workspace_unqf9fb2400291e4fce8525104f6a65a",
+            "source_schema_name": "dbo"
+          },
+          "waitOnCompletion": true
+        },
+        "policy": {
+          "secureInput": false
+        },
+        "name": "DV TO SL PL - Load Eligible Table For Ingestion",
+        "dependsOn": [
+          {
+            "activity": "Truncate ingestiontables and Get Last Refresh Time",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "ExecutePipeline",
+        "typeProperties": {
+          "pipeline": {
+            "referenceName": "a0550730-a388-a93e-4238-dd0879eec7c3",
+            "type": "PipelineReference"
+          },
+          "parameters": {
+            "job_name": "silverlhtosqlserver",
+            "last_load_time": {
+              "value": "@activity('Truncate ingestiontables and Get Last Refresh Time').output.firstRow.silverlhtosqlserverstarttime",
+              "type": "Expression"
+            },
+            "eltexecutiontime": {
+              "value": "@variables('etlstarttimestamp')",
+              "type": "Expression"
+            },
+            "source_db_name": "lh_silver_correction",
+            "source_schema_name": "d365"
+          },
+          "waitOnCompletion": true
+        },
+        "policy": {
+          "secureInput": false
+        },
+        "name": "SL to SQL DB PL - Load Eligible Table For Ingestion",
+        "dependsOn": [
+          {
+            "activity": "NB Refresh SL End Point",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Lookup",
+        "typeProperties": {
+          "source": {
+            "type": "AzureSqlSource",
+            "sqlReaderQuery": "-- To get min start time for previous execution using lineage id\n-- After getting max of that starttime by job, will give the previous min starttime by job\n\n\nWITH CTE\nas\n(\nSELECT\n\tlineage_id\n\t,min(starttime) starttime\n\t,min(t.task_id) task_id\n\t,j.name as jobname\nFROM dbo.log l\nINNER JOIN dbo.task t\nON t.task_id = l.task_id\nAND t.isactive =1\nINNER JOIN dbo.job j\nON j.job_id = t.job_id\nGROUP BY lineage_id,j.name\n)\n,cte2\nAS\n(\n\tSELECT jobname,dateadd(minute,-90,max(starttime)) as starttime from cte GROUP BY jobname\n)\n\n,cte3\nAS\n(\n\tSELECT jobname as config_name\n\t,coalesce(c.config_value,CAST(starttime as varchar(200))) config_value from cte2 \n\tLEFT JOIN dbo.configuration c\n\tON cte2.jobname+'starttime' = c.config_name\n\tAND c.config_type='ingestionconfig'\n\tAND c.isactive=1\n\tUNION ALL\n\tSELECT config_name, config_value FROM \n\tdbo.configuration c where config_type='ingestionconfig' and config_name IN ('fullloadrun','createtableinsqldb') and isactive=1\n)\n\nSELECT 'StartTime' as PreviousRefreshMinStartTime\n ,[d365lhtosilvercorrectionlh]  as d365lhtosilvercorrectionlhstarttime\n ,[silverlhtosqlserver] as silverlhtosqlserverstarttime\n ,[fullloadrun] as fullloadrun\n ,createtableinsqldb\nFROM\n(\n\tSELECT \n\t\t*\n\tFROM cte3\n) as S\nPIVOT( max(config_value) for config_name in ([d365lhtosilvercorrectionlh],[silverlhtosqlserver],[fullloadrun],[createtableinsqldb])\n) as p\n",
+            "partitionOption": "None",
+            "queryTimeout": "02:00:00"
+          },
+          "datasetSettings": {
+            "type": "AzureSqlTable",
+            "typeProperties": {
+              "database": "MetadataDB"
+            },
+            "schema": [],
+            "externalReferences": {
+              "connection": "5241e170-38de-4e16-8299-eb538bf07e3c"
+            },
+            "annotations": []
+          }
+        },
+        "policy": {
+          "timeout": "0.12:00:00",
+          "retry": 0,
+          "retryIntervalInSeconds": 30,
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "Truncate ingestiontables and Get Last Refresh Time",
+        "dependsOn": [
+          {
+            "activity": "NB Refresh DV End Point",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Lookup",
+        "typeProperties": {
+          "source": {
+            "type": "AzureSqlSource",
+            "sqlReaderQuery": {
+              "value": "@concat('SELECT COUNT(1) as TablesWithNewData FROM dbo.ingestiontables WHERE jobname=''d365lhtosilvercorrectionlh'' and record_count > 0 and etltimestamp = CAST(''',variables('etlstarttimestamp'),''' AS datetime2(0))')",
+              "type": "Expression"
+            },
+            "partitionOption": "None",
+            "queryTimeout": "02:00:00"
+          },
+          "datasetSettings": {
+            "type": "AzureSqlTable",
+            "typeProperties": {
+              "database": "MetadataDB"
+            },
+            "schema": [],
+            "externalReferences": {
+              "connection": "5241e170-38de-4e16-8299-eb538bf07e3c"
+            },
+            "annotations": []
+          }
+        },
+        "policy": {
+          "timeout": "0.12:00:00",
+          "retry": 0,
+          "retryIntervalInSeconds": 30,
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "Tables with New Data",
+        "dependsOn": [
+          {
+            "activity": "SL New Tables",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "IfCondition",
+        "typeProperties": {
+          "expression": {
+            "value": "@not(equals(activity('Tables with New Data').output.firstRow.TablesWithNewData,0))",
+            "type": "Expression"
+          },
+          "ifTrueActivities": [
+            {
+              "type": "TridentNotebook",
+              "typeProperties": {
+                "notebookId": "85494dde-5ab0-b913-47e9-6aaac98785f1",
+                "workspaceId": "00000000-0000-0000-0000-000000000000",
+                "parameters": {
+                  "JobName": {
+                    "value": "d365lhtosilvercorrectionlh",
+                    "type": "string"
+                  },
+                  "Lineage_id": {
+                    "value": {
+                      "value": "@pipeline().RunId",
+                      "type": "Expression"
+                    },
+                    "type": "string"
+                  }
+                }
+              },
+              "policy": {
+                "timeout": "0.12:00:00",
+                "retry": 0,
+                "retryIntervalInSeconds": 30,
+                "secureInput": false,
+                "secureOutput": false
+              },
+              "name": "NB Load data to Silver Layer",
+              "dependsOn": []
+            }
+          ],
+          "ifFalseActivities": []
+        },
+        "name": "If Tables Having New Data DV TO SL",
+        "dependsOn": [
+          {
+            "activity": "Tables with New Data",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Lookup",
+        "typeProperties": {
+          "source": {
+            "type": "AzureSqlSource",
+            "sqlReaderQuery": {
+              "value": "@concat('SELECT COUNT(1) as TablesWithNewData FROM dbo.ingestiontables WHERE jobname=''silverlhtosqlserver'' and record_count > 0  and etltimestamp = CAST(''',variables('etlstarttimestamp'),''' AS datetime2(0))')",
+              "type": "Expression"
+            },
+            "partitionOption": "None",
+            "queryTimeout": "02:00:00"
+          },
+          "datasetSettings": {
+            "type": "AzureSqlTable",
+            "typeProperties": {
+              "database": "MetadataDB"
+            },
+            "schema": [],
+            "externalReferences": {
+              "connection": "5241e170-38de-4e16-8299-eb538bf07e3c"
+            },
+            "annotations": []
+          }
+        },
+        "policy": {
+          "timeout": "0.12:00:00",
+          "retry": 0,
+          "retryIntervalInSeconds": 30,
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "Tables with New Data FOR SQL DB",
+        "dependsOn": [
+          {
+            "activity": "Script1",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "IfCondition",
+        "typeProperties": {
+          "expression": {
+            "value": "@not(equals(activity('Tables with New Data FOR SQL DB').output.firstRow.TablesWithNewData,0))",
+            "type": "Expression"
+          },
+          "ifTrueActivities": [
+            {
+              "type": "TridentNotebook",
+              "typeProperties": {
+                "notebookId": "85494dde-5ab0-b913-47e9-6aaac98785f1",
+                "workspaceId": "00000000-0000-0000-0000-000000000000",
+                "parameters": {
+                  "JobName": {
+                    "value": "silverlhtosqlserver",
+                    "type": "string"
+                  },
+                  "Lineage_id": {
+                    "value": {
+                      "value": "@pipeline().RunId",
+                      "type": "Expression"
+                    },
+                    "type": "string"
+                  }
+                }
+              },
+              "policy": {
+                "timeout": "0.12:00:00",
+                "retry": 0,
+                "retryIntervalInSeconds": 30,
+                "secureInput": false,
+                "secureOutput": false
+              },
+              "name": "NB Load data to SQL Server",
+              "dependsOn": []
+            }
+          ],
+          "ifFalseActivities": []
+        },
+        "name": "If Tables Having New Data SL to SQL DB",
+        "dependsOn": [
+          {
+            "activity": "if Full Load for Target",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "IfCondition",
+        "typeProperties": {
+          "expression": {
+            "value": "@equals(activity('Truncate ingestiontables and Get Last Refresh Time').output.firstRow.fullloadrun,'1')",
+            "type": "Expression"
+          },
+          "ifTrueActivities": [
+            {
+              "type": "ExecutePipeline",
+              "typeProperties": {
+                "pipeline": {
+                  "referenceName": "5b938ed8-81ba-bef9-4e23-cc4f7e5b228d",
+                  "type": "PipelineReference"
+                },
+                "parameters": {},
+                "waitOnCompletion": true
+              },
+              "policy": {
+                "secureInput": false
+              },
+              "name": "PL - Load Data to SQL Instance",
+              "dependsOn": []
+            }
+          ],
+          "ifFalseActivities": []
+        },
+        "name": "if Full Load for Target",
+        "dependsOn": [
+          {
+            "activity": "If create table",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Script",
+        "typeProperties": {
+          "database": "MetadataDB",
+          "scripts": [
+            {
+              "text": {
+                "value": "UPDATE dbo.configuration set config_value = NULL where config_type='ingestionconfig' and config_name IN ('silverlhtosqlserverstarttime','d365lhtosilvercorrectionlhstarttime','fullloadrun','createtableinsqldb')",
+                "type": "Expression"
+              },
+              "type": "Query"
+            }
+          ],
+          "scriptBlockExecutionTimeout": "02:00:00"
+        },
+        "externalReferences": {
+          "connection": "5241e170-38de-4e16-8299-eb538bf07e3c"
+        },
+        "policy": {
+          "timeout": "0.12:00:00",
+          "retry": 0,
+          "retryIntervalInSeconds": 30,
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "Update configuration table",
+        "dependsOn": [
+          {
+            "activity": "If Tables Having New Data SL to SQL DB",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "IfCondition",
+        "typeProperties": {
+          "expression": {
+            "value": "@equals(activity('Truncate ingestiontables and Get Last Refresh Time').output.firstRow.createtableinsqldb,'1')",
+            "type": "Expression"
+          },
+          "ifTrueActivities": [
+            {
+              "type": "TridentNotebook",
+              "typeProperties": {
+                "notebookId": "35fdbeeb-8a40-8b88-4115-047e562c0657",
+                "workspaceId": "00000000-0000-0000-0000-000000000000",
+                "parameters": {
+                  "JobName": {
+                    "value": "silverlhtosqlserver",
+                    "type": "string"
+                  },
+                  "Lineage_id": {
+                    "value": {
+                      "value": "@pipeline().RunId",
+                      "type": "Expression"
+                    },
+                    "type": "string"
+                  },
+                  "DatabaseType": {
+                    "value": "sqlserverdb",
+                    "type": "string"
+                  }
+                }
+              },
+              "policy": {
+                "timeout": "0.12:00:00",
+                "retry": 0,
+                "retryIntervalInSeconds": 30,
+                "secureInput": false,
+                "secureOutput": false
+              },
+              "name": "NB DDLCreation Main",
+              "dependsOn": []
+            }
+          ],
+          "ifFalseActivities": []
+        },
+        "name": "If create table",
+        "dependsOn": [
+          {
+            "activity": "Tables with New Data FOR SQL DB",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "TridentNotebook",
+        "typeProperties": {
+          "notebookId": "2241ed44-b2f9-beab-4273-5190ae8037f1",
+          "workspaceId": "00000000-0000-0000-0000-000000000000",
+          "parameters": {
+            "LakehouseName": {
+              "value": "dataverse_mrshd365cete_cds2_workspace_unqf9fb2400291e4fce8525104f6a65a",
+              "type": "string"
+            },
+            "Lineage_id": {
+              "value": {
+                "value": "@pipeline().RunId",
+                "type": "Expression"
+              },
+              "type": "string"
+            }
+          }
+        },
+        "policy": {
+          "timeout": "0.10:00:00",
+          "retry": 0,
+          "retryIntervalInSeconds": 30,
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "NB Refresh DV End Point",
+        "dependsOn": [
+          {
+            "activity": "Set etlstarttimestamp",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "TridentNotebook",
+        "typeProperties": {
+          "notebookId": "2241ed44-b2f9-beab-4273-5190ae8037f1",
+          "workspaceId": "00000000-0000-0000-0000-000000000000",
+          "parameters": {
+            "LakehouseName": {
+              "value": "lh_silver_correction",
+              "type": "string"
+            },
+            "Lineage_id": {
+              "value": {
+                "value": "@pipeline().RunId",
+                "type": "Expression"
+              },
+              "type": "string"
+            }
+          }
+        },
+        "policy": {
+          "timeout": "0.10:00:00",
+          "retry": 0,
+          "retryIntervalInSeconds": 30,
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "NB Refresh SL End Point",
+        "dependsOn": [
+          {
+            "activity": "If Tables Having New Data DV TO SL",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Script",
+        "typeProperties": {
+          "database": "MetadataDB",
+          "scripts": [
+            {
+              "text": {
+                "value": "@concat('INSERT INTO dbo.ingestiontables  SELECT DISTINCT tablename,jobname,CAST(''',variables('etlstarttimestamp'),''' AS datetime2(0)),1,CAST(''',variables('etlstarttimestamp'),''' AS datetime2(0)) FROM dbo.ingestiontables  where 1=1 AND tablename in ( ''marsecurityduties'' ,''marsecurityprivileges'' ,''marsecurityreference'' ,''martablefieldsinformationtable'' ,''martableinformationtable'' )  AND jobname= ''d365lhtosilvercorrectionlh''')",
+                "type": "Expression"
+              },
+              "type": "Query"
+            }
+          ],
+          "scriptBlockExecutionTimeout": "02:00:00"
+        },
+        "externalReferences": {
+          "connection": "5241e170-38de-4e16-8299-eb538bf07e3c"
+        },
+        "policy": {
+          "timeout": "0.12:00:00",
+          "retry": 0,
+          "retryIntervalInSeconds": 30,
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "Script1",
+        "state": "Inactive",
+        "onInactiveMarkAs": "Succeeded",
+        "dependsOn": [
+          {
+            "activity": "SL to SQL DB PL - Load Eligible Table For Ingestion",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Script",
+        "typeProperties": {
+          "database": "MetadataDB",
+          "scripts": [
+            {
+              "text": {
+                "value": "@concat('INSERT INTO dbo.ingestiontables SELECT o.object_name,j.name as jobname,CAST(''',variables('etlstarttimestamp'),''' AS datetime2(0)),1,CAST(''',variables('etlstarttimestamp'),''' AS datetime2(0)) FROM dbo.object o INNER JOIN dbo.task t ON o.object_id = t.targetobjectid INNER JOIN dbo.job j ON t.job_id = j.job_id WHERE j.name = ''d365lhtosilvercorrectionlh'' and o.iscreated = 0 AND t.isactive =1')",
+                "type": "Expression"
+              },
+              "type": "Query"
+            }
+          ],
+          "scriptBlockExecutionTimeout": "02:00:00"
+        },
+        "externalReferences": {
+          "connection": "5241e170-38de-4e16-8299-eb538bf07e3c"
+        },
+        "policy": {
+          "timeout": "0.12:00:00",
+          "retry": 0,
+          "retryIntervalInSeconds": 30,
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "SL New Tables",
+        "dependsOn": [
+          {
+            "activity": "DV TO SL PL - Load Eligible Table For Ingestion",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      }
+    ],
+    "variables": {
+      "etlstarttimestamp": {
+        "type": "String"
+      }
+    }
+  }
+}

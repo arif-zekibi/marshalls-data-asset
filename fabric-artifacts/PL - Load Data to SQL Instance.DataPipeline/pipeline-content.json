@@ -1,0 +1,279 @@
+{
+  "properties": {
+    "activities": [
+      {
+        "type": "Lookup",
+        "typeProperties": {
+          "source": {
+            "type": "AzureSqlSource",
+            "sqlReaderQuery": "SELECT\n\tt.task_id,\n\t lower(so.object_name) as SourceObjectName\n\t,lower(so.schema_name) as SourceSchemaName\n\t,lower(so.database_name) as SourceDatabaeName\n\t,do.object_name as TargetObjectName\n\t,do.schema_name as TargetSchemaName\n\t,do.database_name as TargetDatabaeName\n\t,t.incremental_value\nFROM dbo.task t\n--INNER JOIN dbo.taskcolumnmapping tc\n--ON t.task_id = tc.task_id\nINNER JOIN dbo.object so \nON so.object_id = t.sourceobjectid\nINNER JOIN dbo.object do\nON do.object_id = t.targetobjectid\nINNER JOIN dbo.job j\nON j.job_id = t.job_id\nWHERE t.isactive=1\nand so.isactive =1\nand do.isactive = 1\nAND j.name = 'silverlhtosqlserver'\nAND t.incremental_value='1900-01-01'",
+            "partitionOption": "None",
+            "queryTimeout": "02:00:00"
+          },
+          "datasetSettings": {
+            "type": "AzureSqlTable",
+            "typeProperties": {
+              "database": "MetadataDB"
+            },
+            "schema": [],
+            "externalReferences": {
+              "connection": "5241e170-38de-4e16-8299-eb538bf07e3c"
+            },
+            "annotations": []
+          },
+          "firstRowOnly": false
+        },
+        "policy": {
+          "timeout": "0.00:30:00",
+          "retry": 0,
+          "retryIntervalInSeconds": 30,
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "Get Table Details from MetadataDB",
+        "dependsOn": []
+      },
+      {
+        "type": "ForEach",
+        "typeProperties": {
+          "batchCount": 3,
+          "items": {
+            "value": "@activity('Get Table Details from MetadataDB').output.value",
+            "type": "Expression"
+          },
+          "activities": [
+            {
+              "type": "Copy",
+              "typeProperties": {
+                "source": {
+                  "type": "LakehouseTableSource",
+                  "datasetSettings": {
+                    "type": "LakehouseTable",
+                    "typeProperties": {
+                      "schema": {
+                        "value": "@item().SourceSchemaName",
+                        "type": "Expression"
+                      },
+                      "table": {
+                        "value": "@item().SourceObjectName",
+                        "type": "Expression"
+                      }
+                    },
+                    "schema": [],
+                    "linkedService": {
+                      "name": "lh_silver_correction",
+                      "properties": {
+                        "type": "Lakehouse",
+                        "typeProperties": {
+                          "artifactId": "ae2f3fb9-43d6-9819-4061-d7a9938e5954",
+                          "workspaceId": "00000000-0000-0000-0000-000000000000",
+                          "rootFolder": "Tables"
+                        },
+                        "annotations": []
+                      }
+                    },
+                    "annotations": []
+                  }
+                },
+                "sink": {
+                  "type": "AzureSqlSink",
+                  "sqlWriterUseTableLock": true,
+                  "writeBehavior": "insert",
+                  "disableMetricsCollection": false,
+                  "datasetSettings": {
+                    "type": "AzureSqlTable",
+                    "typeProperties": {
+                      "schema": {
+                        "value": "@item().TargetSchemaName",
+                        "type": "Expression"
+                      },
+                      "table": {
+                        "value": "@concat('stg_',item().TargetObjectName)",
+                        "type": "Expression"
+                      },
+                      "database": "D365FO_Fabric"
+                    },
+                    "schema": [],
+                    "externalReferences": {
+                      "connection": "a01e5d1b-e28b-46cf-9749-0f4214190dc0"
+                    },
+                    "annotations": []
+                  }
+                },
+                "translator": {
+                  "type": "TabularTranslator",
+                  "typeConversion": true,
+                  "typeConversionSettings": {
+                    "allowDataTruncation": true,
+                    "treatBooleanAsNumber": false
+                  }
+                },
+                "enableStaging": false
+              },
+              "policy": {
+                "timeout": "0.00:30:00",
+                "retry": 0,
+                "retryIntervalInSeconds": 30,
+                "secureInput": false,
+                "secureOutput": false
+              },
+              "name": "Load Data from Silver to SQL",
+              "dependsOn": [
+                {
+                  "activity": "Truncate Target Table",
+                  "dependencyConditions": [
+                    "Succeeded"
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Script",
+              "typeProperties": {
+                "database": "D365FO_Fabric",
+                "scripts": [
+                  {
+                    "text": {
+                      "value": "@concat('TRUNCATE TABLE ',item().TargetSchemaName,'.stg_',item().TargetObjectName)",
+                      "type": "Expression"
+                    },
+                    "type": "Query"
+                  }
+                ],
+                "scriptBlockExecutionTimeout": "02:00:00"
+              },
+              "externalReferences": {
+                "connection": "a01e5d1b-e28b-46cf-9749-0f4214190dc0"
+              },
+              "policy": {
+                "timeout": "0.12:00:00",
+                "retry": 0,
+                "retryIntervalInSeconds": 30,
+                "secureInput": false,
+                "secureOutput": false
+              },
+              "name": "Truncate Target Table",
+              "dependsOn": []
+            },
+            {
+              "type": "Script",
+              "typeProperties": {
+                "database": "D365FO_Fabric",
+                "scripts": [
+                  {
+                    "text": {
+                      "value": "@concat('TRUNCATE TABLE ',item().TargetSchemaName,'.',item().TargetObjectName,' INSERT INTO ',item().TargetSchemaName,'.',item().TargetObjectName,' SELECT * FROM ',item().TargetSchemaName,'.stg_',item().TargetObjectName,' WHERE recid is not null')",
+                      "type": "Expression"
+                    },
+                    "type": "Query"
+                  }
+                ],
+                "scriptBlockExecutionTimeout": "02:00:00"
+              },
+              "externalReferences": {
+                "connection": "a01e5d1b-e28b-46cf-9749-0f4214190dc0"
+              },
+              "policy": {
+                "timeout": "0.00:30:00",
+                "retry": 0,
+                "retryIntervalInSeconds": 30,
+                "secureInput": false,
+                "secureOutput": false
+              },
+              "name": "Load from stg to main table",
+              "dependsOn": [
+                {
+                  "activity": "Load Data from Silver to SQL",
+                  "dependencyConditions": [
+                    "Succeeded"
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Script",
+              "typeProperties": {
+                "database": "MetadataDB",
+                "scripts": [
+                  {
+                    "text": {
+                      "value": "@concat('UPDATE t  SET t.incremental_value = cast(getdate() as datetime2(6))  FROM dbo.task t  INNER JOIN dbo.job j  ON j.job_id = t.job_id  WHERE t.isactive=1  and t.task_id =',item().task_id)",
+                      "type": "Expression"
+                    },
+                    "type": "Query"
+                  }
+                ],
+                "scriptBlockExecutionTimeout": "02:00:00"
+              },
+              "externalReferences": {
+                "connection": "5241e170-38de-4e16-8299-eb538bf07e3c"
+              },
+              "policy": {
+                "timeout": "0.12:00:00",
+                "retry": 0,
+                "retryIntervalInSeconds": 30,
+                "secureInput": false,
+                "secureOutput": false
+              },
+              "name": "Update Increamental Value_copy1",
+              "dependsOn": [
+                {
+                  "activity": "Load from stg to main table",
+                  "dependencyConditions": [
+                    "Succeeded"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "name": "ForEach1",
+        "dependsOn": [
+          {
+            "activity": "Get Table Details from MetadataDB",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Script",
+        "typeProperties": {
+          "database": "MetadataDB",
+          "scripts": [
+            {
+              "text": {
+                "value": "UPDATE t\r\nSET t.incremental_value = cast(getdate() as datetime2(6))\r\nFROM dbo.task t\r\n--INNER JOIN dbo.taskcolumnmapping tc\r\n--ON t.task_id = tc.task_id\r\nINNER JOIN dbo.job j\r\nON j.job_id = t.job_id\r\nWHERE t.isactive=1\r\nAND j.name = 'silverlhtosqlserver'",
+                "type": "Expression"
+              },
+              "type": "Query"
+            }
+          ],
+          "scriptBlockExecutionTimeout": "02:00:00"
+        },
+        "externalReferences": {
+          "connection": "5241e170-38de-4e16-8299-eb538bf07e3c"
+        },
+        "policy": {
+          "timeout": "0.12:00:00",
+          "retry": 0,
+          "retryIntervalInSeconds": 30,
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "Update Increamental Value",
+        "state": "Inactive",
+        "onInactiveMarkAs": "Succeeded",
+        "dependsOn": [
+          {
+            "activity": "ForEach1",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

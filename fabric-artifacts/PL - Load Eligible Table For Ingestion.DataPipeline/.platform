@@ -1,0 +1,11 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+  "metadata": {
+    "type": "DataPipeline",
+    "displayName": "PL - Load Eligible Table For Ingestion"
+  },
+  "config": {
+    "version": "2.0",
+    "logicalId": "a0550730-a388-a93e-4238-dd0879eec7c3"
+  }
+}

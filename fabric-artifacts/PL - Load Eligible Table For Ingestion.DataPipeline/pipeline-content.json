@@ -1,0 +1,197 @@
+{
+  "properties": {
+    "activities": [
+      {
+        "name": "Copy Data into SQL DB",
+        "type": "Copy",
+        "dependsOn": [
+          {
+            "activity": "Set Incremental Col Name",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "policy": {
+          "timeout": "0.12:00:00",
+          "retry": 0,
+          "retryIntervalInSeconds": 30,
+          "secureOutput": false,
+          "secureInput": false
+        },
+        "typeProperties": {
+          "source": {
+            "type": "AzureSqlSource",
+            "sqlReaderQuery": {
+              "value": "@concat('DECLARE @script VARCHAR(MAX) =''''\nSELECT \n\t@script = @script+CONCAT(CASE WHEN Seq <> 1 THEN '' UNION ALL ''ELSE '' '' END,Query) \nFROM (\n\tSELECT name as tablename, ROW_NUMBER() OVER(ORDER BY name) AS Seq\n\t,''SELECT ''''''+name\n\t+'''''' as tablename,''''',pipeline().parameters.job_name,''''' as jobname,CAST(''''',pipeline().parameters.last_load_time,''''' AS datetime2(0)) as load_time,COUNT(1) record_count,CAST(''''',pipeline().parameters.eltexecutiontime,''''' AS datetime2(0)) as etltimestamp \n\tFROM ',pipeline().parameters.source_db_name,'.',pipeline().parameters.source_schema_name,'.''+name \n\t+'' WHERE ',variables('incremental_col_name'),' > ''''',pipeline().parameters.last_load_time,''''' ''\n\tAS Query\n\tFROM  sys.tables \n\tWHERE name in (SELECT t.name FROM sys.tables t where name not in (''marsstransactionrecvtable'',''marsstransactionsendtable''))\n) AS M\n\nORDER BY tablename\nSET @script = ''SELECT * FROM ( ''+@script+'' ) AS Main ''\nEXECUTE (@script)')",
+              "type": "Expression"
+            },
+            "queryTimeout": "02:00:00",
+            "partitionOption": "None",
+            "datasetSettings": {
+              "annotations": [],
+              "type": "AzureSqlTable",
+              "schema": [],
+              "typeProperties": {
+                "database": "lh_silver_correction"
+              },
+              "externalReferences": {
+                "connection": "3df4b420-51ce-4afd-97a8-ba38b21effa7"
+              }
+            }
+          },
+          "sink": {
+            "type": "AzureSqlSink",
+            "writeBehavior": "insert",
+            "sqlWriterUseTableLock": false,
+            "datasetSettings": {
+              "annotations": [],
+              "type": "AzureSqlTable",
+              "schema": [],
+              "typeProperties": {
+                "schema": "dbo",
+                "table": "ingestiontables",
+                "database": "MetadataDB"
+              },
+              "externalReferences": {
+                "connection": "5241e170-38de-4e16-8299-eb538bf07e3c"
+              }
+            }
+          },
+          "enableStaging": false,
+          "translator": {
+            "type": "TabularTranslator",
+            "typeConversion": true,
+            "typeConversionSettings": {
+              "allowDataTruncation": true,
+              "treatBooleanAsNumber": false
+            }
+          }
+        }
+      },
+      {
+        "name": "Load Data to Log Table",
+        "type": "Script",
+        "state": "Inactive",
+        "onInactiveMarkAs": "Succeeded",
+        "dependsOn": [
+          {
+            "activity": "Copy Data into SQL DB",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "policy": {
+          "timeout": "0.12:00:00",
+          "retry": 0,
+          "retryIntervalInSeconds": 30,
+          "secureOutput": false,
+          "secureInput": false
+        },
+        "typeProperties": {
+          "scripts": [
+            {
+              "type": "Query",
+              "text": {
+                "value": "@concat('INSERT INTO dbo.log (task_id,processed_by,StartTime,EndTime,Status,log_type)\nSELECT \n\ttask.task_id\n\t,''Manual Ingestion Load for table load.'' processed_by\n\t,GETDATE() AS StartTime\n\t,GETDATE() AS EndTime\n\t,1 as Status\n\t,3 as LogType\nFROM dbo.ingestiontables i\nINNER JOIN dbo.job j\nON i.jobname = j.name\nINNER JOIN \n(SELECT t.job_id,t.task_id,so.object_name FROM dbo.task t INNER JOIN dbo.object so on t.sourceobjectid = so.object_id ) as task\nON task.job_id = j.job_id\nand task.object_name = i.tablename\nWHERE load_time = CAST(''''',pipeline().parameters.eltexecutiontime,''''' AS datetime2(0))')",
+                "type": "Expression"
+              }
+            }
+          ],
+          "scriptBlockExecutionTimeout": "02:00:00",
+          "database": "MetadataDB"
+        },
+        "externalReferences": {
+          "connection": "5241e170-38de-4e16-8299-eb538bf07e3c"
+        }
+      },
+      {
+        "name": "Set Incremental Col Name",
+        "type": "Switch",
+        "dependsOn": [],
+        "typeProperties": {
+          "on": {
+            "value": "@pipeline().parameters.job_name",
+            "type": "Expression"
+          },
+          "cases": [
+            {
+              "value": "silverlhtosqlserver",
+              "activities": [
+                {
+                  "name": "Set incremental_col_name",
+                  "type": "SetVariable",
+                  "dependsOn": [],
+                  "policy": {
+                    "secureOutput": false,
+                    "secureInput": false
+                  },
+                  "typeProperties": {
+                    "variableName": "incremental_col_name",
+                    "value": {
+                      "value": "etllastmodifiedtimestamp",
+                      "type": "Expression"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "value": "d365lhtosilvercorrectionlh",
+              "activities": [
+                {
+                  "name": "Set incremental_col_name_copy1",
+                  "type": "SetVariable",
+                  "dependsOn": [],
+                  "policy": {
+                    "secureOutput": false,
+                    "secureInput": false
+                  },
+                  "typeProperties": {
+                    "variableName": "incremental_col_name",
+                    "value": {
+                      "value": "SinkModifiedOn",
+                      "type": "Expression"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "defaultActivities": []
+        }
+      }
+    ],
+    "parameters": {
+      "job_name": {
+        "type": "string",
+        "defaultValue": "d365lhtosilvercorrectionlh"
+      },
+      "last_load_time": {
+        "type": "string",
+        "defaultValue": "2025-02-25 11:40:59.8187770"
+      },
+      "eltexecutiontime": {
+        "type": "string",
+        "defaultValue": "2025-02-25T14:36:20.1445204Z"
+      },
+      "source_db_name": {
+        "type": "string",
+        "defaultValue": "dataverse_mrshd365cete_cds2_workspace_unqf9fb2400291e4fce8525104f6a65a"
+      },
+      "source_schema_name": {
+        "type": "string",
+        "defaultValue": "dbo"
+      }
+    },
+    "variables": {
+      "t": {
+        "type": "String"
+      },
+      "incremental_col_name": {
+        "type": "String"
+      }
+    }
+  }
+}

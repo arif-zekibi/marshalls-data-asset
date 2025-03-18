@@ -1,0 +1,11 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+  "metadata": {
+    "type": "Dataflow",
+    "displayName": "Load Data to SQL Instance"
+  },
+  "config": {
+    "version": "2.0",
+    "logicalId": "044c70ea-4718-a01e-4056-43414297a497"
+  }
+}

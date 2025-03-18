@@ -1,0 +1,11 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+  "metadata": {
+    "type": "DataPipeline",
+    "displayName": "PL - Load Data to SQL Instance"
+  },
+  "config": {
+    "version": "2.0",
+    "logicalId": "5b938ed8-81ba-bef9-4e23-cc4f7e5b228d"
+  }
+}

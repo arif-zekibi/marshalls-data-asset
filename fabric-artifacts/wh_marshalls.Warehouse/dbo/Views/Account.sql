@@ -1,0 +1,2 @@
+-- Auto Generated (Do not modify) 75BC74547847C1D0D2B797FAC536523FC9757332F2841E688340EFD872411CE6
+CREATE VIEW [dbo].[Account] AS (SELECT TOP 10 * FROM [dataverse_mrshd365cete_cds2_workspace_unqf9fb2400291e4fce8525104f6a65a].[dbo].[account])
