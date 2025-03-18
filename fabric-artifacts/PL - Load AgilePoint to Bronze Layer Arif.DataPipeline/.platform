@@ -1,0 +1,11 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+  "metadata": {
+    "type": "DataPipeline",
+    "displayName": "PL - Load AgilePoint to Bronze Layer Arif"
+  },
+  "config": {
+    "version": "2.0",
+    "logicalId": "381e7583-2380-9d7c-4b8b-a7ea52266aba"
+  }
+}
