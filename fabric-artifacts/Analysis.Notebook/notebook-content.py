@@ -826,3 +826,166 @@ display(df)
 # META   "language": "python",
 # META   "language_group": "synapse_pyspark"
 # META }
+
+# CELL ********************
+
+# Add etllastmodifiedtimestamp 
+df = spark.read.load(path='abfss://0570d2f2-4789-4601-91b2-caceb33c9ce2@onelake.dfs.fabric.microsoft.com/b914bd3d-f8f9-40d9-a814-9c2c4db325a7/Files/lh_bronze_raw/mssql/agilepoint/AP_Dev_DataEntities_DB_MSP_ENEConsumption__u/2025-03-14T08:48:54.2029438',format='parquet')
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+print(df.count(),df2.count())
+# etllastmodifiedtimestamp
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+# Adding timestamp column and checking schema evolution
+from pyspark.sql import functions as f
+# df2 = df2.withColumn('etllastmodifiedtimestamp',f.lit('2025-03-14T09:03:58.0110053').cast('timestamp'))
+
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+# df2.repartition(1).write.mode('overwrite').parquet(path='abfss://0570d2f2-4789-4601-91b2-caceb33c9ce2@onelake.dfs.fabric.microsoft.com/b914bd3d-f8f9-40d9-a814-9c2c4db325a7/Files/lh_bronze_raw/mssql/agilepoint/AP_Dev_DataEntities_DB_MSP_ENEConsumption__u/2025-03-14T09:03:58.0110053.parquet')
+df2.coalesce(1).write.mode('overwrite').parquet(path='abfss://0570d2f2-4789-4601-91b2-caceb33c9ce2@onelake.dfs.fabric.microsoft.com/b914bd3d-f8f9-40d9-a814-9c2c4db325a7/Files/lh_bronze_raw/mssql/agilepoint/AP_Dev_DataEntities_DB_MSP_ENEConsumption__u/')
+# format('parquet').save
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+def getDirandFileName (strFilePath):
+    details = os.path.split(strFilePath)
+    return details[0],details[1]
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+import os
+try:
+    orgFilePath = 'abfss://0570d2f2-4789-4601-91b2-caceb33c9ce2@onelake.dfs.fabric.microsoft.com/b914bd3d-f8f9-40d9-a814-9c2c4db325a7/Files/lh_bronze_raw/mssql/agilepoint/AP_Dev_DataEntities_DB_MSP_ENEConsumption__u/2025-03-14T09:03:58.0110053.parquet'
+    orgFileDir,orgFileName = getDirandFileName(orgFilePath)
+    newFilePath = orgFileDir+'/temp'
+    df = spark.read.load(path=orgFilePath,format='parquet')
+    df = df.withColumn('etllastmodifiedtimestamp',f.lit('2025-03-14T09:03:58.0110053').cast('timestamp'))
+    df.repartition(1).write.mode('overwrite').parquet(path = newFilePath)
+    print(df.columns)
+    newFiles = notebookutils.fs.ls(newFilePath)
+    for file in newFiles:
+        # print(file.path)
+        # print(os.path.splitext(file.path)[1])
+        if os.path.splitext(file.path)[1] == '.parquet':
+            print('Filemove in progress..!!')
+            notebookutils.fs.rm(orgFilePath)
+            notebookutils.fs.cp(file.path,orgFileDir+'/NEW_'+orgFileName)
+            # notebookutils.fs.cp(file.path,orgFilePath)
+
+except Exception as e:
+ raise e
+
+# notebookutils.fs.ls('abfss://0570d2f2-4789-4601-91b2-caceb33c9ce2@onelake.dfs.fabric.microsoft.com/b914bd3d-f8f9-40d9-a814-9c2c4db325a7/Files/lh_bronze_raw/mssql/agilepoint/AP_Dev_DataEntities_DB_MSP_ENEConsumption__u/') 
+
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+notebookutils.fs.cp('abfss://0570d2f2-4789-4601-91b2-caceb33c9ce2@onelake.dfs.fabric.microsoft.com/b914bd3d-f8f9-40d9-a814-9c2c4db325a7/Files/lh_bronze_raw/mssql/agilepoint/AP_Dev_DataEntities_DB_MSP_ENEConsumption__u/temp/part-00000-5f46e18e-b52a-41cc-8e8c-0010dd9df875-c000.snappy.parquet','abfss://0570d2f2-4789-4601-91b2-caceb33c9ce2@onelake.dfs.fabric.microsoft.com/b914bd3d-f8f9-40d9-a814-9c2c4db325a7/Files/lh_bronze_raw/mssql/agilepoint/AP_Dev_DataEntities_DB_MSP_ENEConsumption__u/2025-03-14T09:03:58.0110053.parquet')
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+# orgFilePath = 'abfss://0570d2f2-4789-4601-91b2-caceb33c9ce2@onelake.dfs.fabric.microsoft.com/b914bd3d-f8f9-40d9-a814-9c2c4db325a7/Files/lh_bronze_raw/mssql/agilepoint/AP_Dev_DataEntities_DB_MSP_ENEConsumption__u/2025-03-14T09:03:58.0110053.parquet'
+orgFilePath = 'abfss://0570d2f2-4789-4601-91b2-caceb33c9ce2@onelake.dfs.fabric.microsoft.com/b914bd3d-f8f9-40d9-a814-9c2c4db325a7/Files/lh_bronze_raw/mssql/agilepoint/AP_Dev_DataEntities_DB_MSP_ENEConsumption__u/NEW_2025-03-14T09:03:58.0110053.parquet'
+orgFileFolder = 'abfss://0570d2f2-4789-4601-91b2-caceb33c9ce2@onelake.dfs.fabric.microsoft.com/b914bd3d-f8f9-40d9-a814-9c2c4db325a7/Files/lh_bronze_raw/mssql/agilepoint/AP_Dev_DataEntities_DB_MSP_ENEConsumption__u'
+newFIle = 'abfss://0570d2f2-4789-4601-91b2-caceb33c9ce2@onelake.dfs.fabric.microsoft.com/b914bd3d-f8f9-40d9-a814-9c2c4db325a7/Files/lh_bronze_raw/mssql/agilepoint/AP_Dev_DataEntities_DB_MSP_ENEConsumption__u/temp/'
+# spark.read.option("mergeSchema", "true").parquet("data/test_table")
+df3 = spark.read.option("mergeSchema","true").load(path=orgFilePath,format='parquet')
+df4 = spark.read.option("mergeSchema","true").load(path = orgFileFolder,format='parquet')
+df2 = spark.read.load(path=newFIle,format='parquet')
+print(df3.columns)
+print(df2.columns)
+display(df3)
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+display(df4.groupBy('etllastmodifiedtimestamp').count())
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+print(df.columns)
+print(df.count())
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }

@@ -628,7 +628,7 @@ def createTable():
 def createIncrementalView():
     try:
         print('\n........ Start:Create Incremental Source view........\n')
-        df = spark.read.parquet(strSourceTablePath)
+        df = spark.read.option("mergeSchema","true").parquet(strSourceTablePath)
         df.createOrReplaceTempView(strTempSourceView)
         strCreateTempViewQuery ='CREATE OR REPLACE TEMP VIEW {TempViewName} AS ( SELECT * FROM ( SELECT {SelectCols} {PartitionBy} FROM {SourceTableName} WHERE 1=1 {FilterCondition}) {FilterOnSeq})'
         listColumns = ['`'+l['SourceColumn']+'`'+' AS `'+l['TargetColumn']+'`' for l in listOfMapping]
